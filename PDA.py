@@ -45,8 +45,8 @@ class GraphMemoryNode:
 
 class GraphMemoryBank:
     def __init__(self):
-        self.graph_nodes = {}
-        self.graph_edges = {}
+        self.graph_nodes: Dict[str, GraphMemoryNode] = {}
+        self.graph_edges: Dict[str, List[Tuple[str, str]]] = {}
     
     def add_node(self, node: GraphMemoryNode):
         self.graph_nodes[node.id] = node
@@ -57,14 +57,68 @@ class GraphMemoryBank:
         self.graph_edges[from_id].append((to_id, rel))
     
     def save_all(self, path_prefix: str):
-        """保存记忆图到文件"""
-        # 实现记忆持久化存储逻辑
-        pass
+        """保存记忆图到JSON文件。"""
+        nodes_file = f"{path_prefix}_nodes.json"
+        edges_file = f"{path_prefix}_edges.json"
+
+        serializable_nodes = []
+        for node_id, node in self.graph_nodes.items():
+            serializable_nodes.append({
+                'id': node.id,
+                'embedding': node.embedding.cpu().tolist(), # Ensure tensor is on CPU and convert to list
+                'content': node.content,
+                'last_accessed': node.last_accessed.cpu().item() # Ensure tensor is on CPU and get scalar value
+            })
+        
+        try:
+            with open(nodes_file, 'w', encoding='utf-8') as f:
+                json.dump(serializable_nodes, f, indent=4, ensure_ascii=False)
+            print(f"🧠 Nodes saved to {nodes_file}")
+        except Exception as e:
+            print(f"Error saving nodes: {e}")
+
+        try:
+            with open(edges_file, 'w', encoding='utf-8') as f:
+                json.dump(self.graph_edges, f, indent=4, ensure_ascii=False)
+            print(f"🔗 Edges saved to {edges_file}")
+        except Exception as e:
+            print(f"Error saving edges: {e}")
     
     def load(self, path_prefix: str):
-        """从文件加载记忆图"""
-        # 实现记忆加载逻辑
-        pass
+        """从JSON文件加载记忆图。"""
+        nodes_file = f"{path_prefix}_nodes.json"
+        edges_file = f"{path_prefix}_edges.json"
+
+        if os.path.exists(nodes_file):
+            try:
+                with open(nodes_file, 'r', encoding='utf-8') as f:
+                    loaded_nodes_data = json.load(f)
+                
+                self.graph_nodes.clear()
+                for node_data in loaded_nodes_data:
+                    node = GraphMemoryNode(
+                        id=node_data['id'],
+                        emb=torch.tensor(node_data['embedding'], dtype=torch.float32), # Specify dtype
+                        content=node_data['content']
+                    )
+                    node.last_accessed = torch.tensor(node_data['last_accessed'], dtype=torch.float32) # Specify dtype
+                    self.graph_nodes[node.id] = node
+                print(f"🧠 Nodes loaded from {nodes_file}: {len(self.graph_nodes)} nodes")
+            except Exception as e:
+                print(f"Error loading nodes: {e}")
+        else:
+            print(f"Node file {nodes_file} not found. Starting with an empty node bank.")
+
+        if os.path.exists(edges_file):
+            try:
+                with open(edges_file, 'r', encoding='utf-8') as f:
+                    self.graph_edges = json.load(f)
+                print(f"🔗 Edges loaded from {edges_file}: {len(self.graph_edges)} edge groups")
+            except Exception as e:
+                print(f"Error loading edges: {e}")
+                self.graph_edges = {} # Reset if loading failed
+        else:
+            print(f"Edge file {edges_file} not found. Starting with an empty edge bank.")
 
 # --------------- 核心对话代理实现 ---------------
 class DialogHistoryBuffer:
