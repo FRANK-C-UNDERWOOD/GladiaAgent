@@ -725,5 +725,5 @@ class IntegratedSystem:
 # and the 'predictive_coding_module' needs to be clearly defined.
 # For now, new vectors are added to knowledge_base_vectors if the triple_key is new.
 # A more sophisticated predictive coding mechanism would determine when and how to store/update.
-        }
+        
 
