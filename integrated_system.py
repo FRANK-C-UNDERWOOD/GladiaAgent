@@ -393,12 +393,14 @@ class IntegratedSystem:
                 return input_data
             return []
 
-        prompt = (
-            "请从下面的文本中抽取所有知识三元组（主体, 关系, 客体）。"
-            "每个三元组请严格按照JSON对象 `{\"subject\": \"主体\", \"relation\": \"关系\", \"object\": \"客体\"}` 的格式表示。"
-            "将所有这些JSON对象组成一个JSON数组返回。如果找不到三元组，返回空数组 `[]`。"
-            f"文本内容：\n{input_data}"
-        )
+        prompt = f"""
+        从以下中文文本中抽取三元组（主语-谓语-宾语）关系，以 (主体, 动作, 客体) 的格式返回一个 JSON 数组。例如：
+        输入：小明在公园里踢足球。
+        输出：[["小明", "踢", "足球"]]
+
+        请从文本中提取所有可以识别出的三元组：
+            {input_data}
+            """
         
         async def call_deepseek_for_triples():
             try:
