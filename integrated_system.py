@@ -727,5 +727,3 @@ class IntegratedSystem:
 # A more sophisticated predictive coding mechanism would determine when and how to store/update.
         }
 
-    def save_all_memory(self):
-        self.pda_agent.save_memory()
