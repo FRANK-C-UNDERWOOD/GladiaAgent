@@ -710,20 +710,5 @@ class IntegratedSystem:
         except Exception as e:
             print(f"Error processing query triple with TN: {e}")
             return None
-
-# Example of how PredictiveCodingAgent might be used (conceptual)
-# def update_knowledge_base_with_predictive_coding(self, new_triples_with_vectors):
-#     for triple_key, vector in new_triples_with_vectors.items():
-#         # Assume self.modules['predictive_coding_module'] has a method to assess novelty
-#         # This is highly conceptual and depends on PredictiveCodingAgent's design
-#         is_novel_or_significant = self.modules['predictive_coding_module'].assess(vector) 
-#         if is_novel_or_significant:
-#             self.knowledge_base_vectors[triple_key] = vector.cpu() # Store on CPU
-#             print(f"KB: Added/Updated vector for {triple_key} based on predictive coding.")
-
-# Note: The interaction between PDA's pc_core and the main knowledge_base_vectors
-# and the 'predictive_coding_module' needs to be clearly defined.
-# For now, new vectors are added to knowledge_base_vectors if the triple_key is new.
-# A more sophisticated predictive coding mechanism would determine when and how to store/update.
         
 
