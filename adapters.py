@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from typing import List, Dict, Any, Union,Tuple,Optional
 import torch.nn as nn
-
+import time
 
 class TNAdapter:
     """TN模块适配器，处理数据格式转换"""
