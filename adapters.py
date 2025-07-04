@@ -1,94 +1,48 @@
 # adapters.py
 import torch
 import numpy as np
-from typing import List, Dict, Any, Union,Tuple,Optional
+from typing import List, Dict, Any, Union, Tuple, Optional
 import torch.nn as nn
 import time
 
-class TNAdapter:
-    """TN模块适配器，处理数据格式转换"""
-    
-    def __init__(self, tn_compressor):
-        self.tn_compressor = tn_compressor
-    
-    def prepare_triples_for_compression(self, triples: List) -> List:
-        """准备三元组数据用于压缩"""
-        if not triples:
-            return []
-        
-        # 确保三元组格式正确
-        formatted_triples = []
-        for triple in triples:
-            if isinstance(triple, (list, tuple)) and len(triple) == 3:
-                formatted_triples.append(triple)
-            else:
-                print(f"Warning: Invalid triple format: {triple}")
-        
-        return formatted_triples
-    
-    def compress_and_flatten(self, triples: List) -> np.ndarray:
-        """压缩三元组并展平为向量"""
-        if not triples:
-            # 返回零向量
-            tensor_dim = self.tn_compressor.tensor_dim
-            return np.zeros((tensor_dim * tensor_dim,))
-        
-        try:
-            if len(triples) == 1:
-                # 单个三元组
-                compressed = self.tn_compressor.compress_triplet(triples[0])
-                return self.tn_compressor.flatten_tensor(compressed)
-            else:
-                # 批量三元组
-                compressed_batch = self.tn_compressor.compress_batch(triples)
-                flattened_batch = [
-                    self.tn_compressor.flatten_tensor(t) for t in compressed_batch
-                ]
-                return np.array(flattened_batch)
-        except Exception as e:
-            print(f"Error in compression: {e}")
-            tensor_dim = self.tn_compressor.tensor_dim
-            return np.zeros((tensor_dim * tensor_dim,))
-    
-    def prepare_for_sernn(self, compressed_vectors: np.ndarray) -> torch.Tensor:
-        """为SeRNN准备输入格式"""
-        if compressed_vectors.ndim == 1:
-            compressed_vectors = compressed_vectors.reshape(1, -1)
-        
-        return torch.tensor(compressed_vectors, dtype=torch.float32)
-    
-    def extract_spatial_features(self, vectors: np.ndarray) -> Dict[str, float]:
-        """提取空间特征统计信息"""
-        return {
-            'mean': float(np.mean(vectors)),
-            'std': float(np.std(vectors)),
-            'max': float(np.max(vectors)),
-            'min': float(np.min(vectors)),
-            'norm': float(np.linalg.norm(vectors))
-        }
-
 class SeRNNAdapter:
-    """SeRNN模块适配器"""
+    """SeRNN模块适配器 - 处理空间嵌入向量"""
     
     def __init__(self, sernn_model):
         self.sernn = sernn_model
     
     def process_tn_output(self, tn_vectors: torch.Tensor) -> torch.Tensor:
-        """处理来自TN的输出"""
+        """处理来自Sentence Transformers的嵌入向量"""
         try:
             # 确保输入维度正确
             if tn_vectors.dim() == 1:
                 tn_vectors = tn_vectors.unsqueeze(0)
             
-            return self.sernn.forward(tn_vectors)
+            # 直接传入SeRNN模型处理
+            if tn_vectors.dim() == 2:  # [batch, dim]
+                sernn_input = tn_vectors.unsqueeze(1)  # -> [batch, 1, dim]
+            else:  # Already [batch, seq, dim]
+                sernn_input = tn_vectors
+                
+            # 创建模拟空间位置
+            batch_size = tn_vectors.size(0)
+            seq_len = sernn_input.size(1)
+            spatial_positions = torch.randint(0, self.sernn.spatial_dim, 
+                                            (batch_size, seq_len), 
+                                            device=tn_vectors.device)
+            
+            # 处理输入
+            output_sequence, _ = self.sernn(sernn_input, spatial_positions)
+            return output_sequence
+            
         except Exception as e:
             print(f"Error in SeRNN processing: {e}")
-            return torch.zeros(1, self.sernn.hidden_dim)
+            return torch.zeros(1, self.sernn.hidden_size)
     
     def extract_spatial_embeddings(self, output: torch.Tensor) -> Dict[str, Any]:
         """提取空间嵌入信息"""
         return {
-            'embeddings': output.detach().numpy(),
+            'embeddings': output.detach().cpu().numpy(),
             'shape': output.shape,
             'spatial_features': {
                 'mean': float(torch.mean(output)),
@@ -97,7 +51,7 @@ class SeRNNAdapter:
         }
 
 class PredictiveAdapter:
-    """预测编码适配器"""
+    """预测编码适配器 - 处理空间嵌入"""
     
     def __init__(self, predictive_agent):
         self.predictive_agent = predictive_agent
@@ -105,11 +59,16 @@ class PredictiveAdapter:
     def process_sernn_output(self, sernn_output: torch.Tensor) -> Dict[str, Any]:
         """处理来自SeRNN的输出"""
         try:
-            predictions = self.predictive_agent.predict(sernn_output)
+            # 确保输入格式正确
+            if sernn_output.dim() == 2:  # [batch, dim]
+                sernn_output = sernn_output.unsqueeze(1)  # -> [batch, 1, dim]
+            
+            # 调用预测编码模型
+            predictions = self.predictive_agent(sernn_output)
             return {
-                'predictions': predictions,
+                'predictions': predictions[0],
                 'confidence': self._calculate_confidence(predictions),
-                'features': sernn_output.detach().numpy()
+                'features': sernn_output.detach().cpu().numpy()
             }
         except Exception as e:
             print(f"Error in predictive processing: {e}")
@@ -127,7 +86,7 @@ class PredictiveAdapter:
         return 0.5
 
 class PDAAdapter:
-    """PDA适配器，提供更完整的预测编码功能"""
+    """PDA适配器 - 提供预测编码功能"""
     
     def __init__(self, config):
         self.config = config
@@ -250,7 +209,6 @@ class PredictiveMemoryBank:
     
     def get_relevant_context(self, query: str) -> Dict:
         """获取相关上下文"""
-        # 简化实现，实际可以使用语义相似度搜索
         if not self.memory_buffer:
             return {'relevant_knowledge': '', 'confidence_threshold': 0.5}
         
@@ -278,6 +236,24 @@ class ConfidenceEstimator:
         ).to(config.device)
     
     def estimate(self, predictions: torch.Tensor, original_input: torch.Tensor) -> float:
+        """估计预测置信度"""
+        # 展平输入
+        predictions_flat = predictions.flatten()
+        input_flat = original_input.flatten()
+        
+        # 确保向量长度一致
+        min_len = min(len(predictions_flat), len(input_flat))
+        if min_len == 0:
+            return 0.5
+        
+        # 截断或填充
+        predictions_flat = predictions_flat[:min_len]
+        input_flat = input_flat[:min_len]
+        
+        # 合并输入
+        combined = torch.cat([predictions_flat, input_flat])
+        confidence = self.estimator(combined.unsqueeze(0))
+        return confidence.item()
         """估计预测置信度"""
         combined = torch.cat([predictions.flatten(), original_input.flatten()])
         confidence = self.estimator(combined.unsqueeze(0))
