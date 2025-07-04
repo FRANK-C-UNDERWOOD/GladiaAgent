@@ -14,7 +14,7 @@ import os
 import json
 import traceback
 
-CORE_MEMORY_DIR = "core_tn_sernn_memory"
+CORE_MEMORY_DIR = "core_sernn_memory"
 
 @dataclass
 class ProcessingResult:
@@ -137,37 +137,109 @@ class IntegratedSystem:
 
     def generate_embeddings(self, texts: Union[str, List[str]]) -> torch.Tensor:
         """使用Sentence Transformers生成384维嵌入"""
-        if isinstance(texts, str):
-            texts = [texts]
+        print(f"[DEBUG EMBEDDING] generate_embeddings called with texts: {texts}")
+        try:
+            if isinstance(texts, str):
+                # Process single string
+                print(f"[DEBUG EMBEDDING] Encoding single text item: '{texts}'")
+                try:
+                    # Encode as a list containing one item for consistency with batch processing
+                    embeddings = self.embedder.encode([texts], convert_to_tensor=True)
+                    print(f"[DEBUG EMBEDDING] Single text item encoded successfully, shape: {embeddings.shape}")
+                except Exception as item_e:
+                    print(f"[DEBUG EMBEDDING] ERROR encoding single text item ('{texts}'): {item_e}")
+                    traceback.print_exc()
+                    raise item_e # Re-raise the specific error
             
-        embeddings = self.embedder.encode(texts, convert_to_tensor=True)
-        return embeddings.to(self.config.device)
+            elif isinstance(texts, list):
+                if not texts: # Handles empty list case
+                    print("[DEBUG EMBEDDING] Input 'texts' is an empty list, returning empty tensor of shape (0, embedding_dim).")
+                    # Ensure correct empty shape, get embedding_dim from embedder
+                    embedding_dim = self.embedder.get_sentence_embedding_dimension() if hasattr(self.embedder, 'get_sentence_embedding_dimension') else 384
+                    return torch.empty((0, embedding_dim), device=self.config.device) 
+                
+                embeddings_list = []
+                # all_successful = True # Not strictly needed if we re-raise on item error
+                for i, text_item in enumerate(texts):
+                    print(f"[DEBUG EMBEDDING] Encoding item {i+1}/{len(texts)}: '{text_item}'")
+                    if not isinstance(text_item, str):
+                        print(f"[DEBUG EMBEDDING] ERROR: Item {i+1} is not a string, it's a {type(text_item)}. Value: '{text_item}'.")
+                        # Option 1: Raise an error
+                        raise TypeError(f"Item {i+1} in list is not a string: {type(text_item)}")
+                        # Option 2: Skip (less safe, might hide problems)
+                        # all_successful = False
+                        # continue 
 
+                    try:
+                        # Encode each item as a list containing one item
+                        emb = self.embedder.encode([text_item], convert_to_tensor=True)
+                        embeddings_list.append(emb)
+                        print(f"[DEBUG EMBEDDING] Item {i+1} encoded successfully, shape: {emb.shape}")
+                    except Exception as item_e:
+                        print(f"[DEBUG EMBEDDING] ERROR encoding item {i+1} ('{text_item}'): {item_e}")
+                        traceback.print_exc()
+                        # If one item fails, you might want to stop or handle it
+                        # For debugging, let's re-raise to see the error immediately for that item
+                        raise item_e 
+                
+                if not embeddings_list: # If list was not empty but all items failed or were skipped
+                    print("[DEBUG EMBEDDING] No items were successfully encoded from the list.")
+                    embedding_dim = self.embedder.get_sentence_embedding_dimension() if hasattr(self.embedder, 'get_sentence_embedding_dimension') else 384
+                    return torch.empty((0, embedding_dim), device=self.config.device)
+
+                try:
+                    embeddings = torch.cat(embeddings_list, dim=0) # Concatenate along batch dimension
+                except Exception as cat_e:
+                    print(f"[DEBUG EMBEDDING] ERROR during torch.cat: {cat_e}")
+                    print(f"[DEBUG EMBEDDING] shapes of embeddings in list: {[e.shape for e in embeddings_list]}")
+                    traceback.print_exc()
+                    raise cat_e
+
+            else:
+                print(f"[DEBUG EMBEDDING] ERROR: Invalid type for 'texts' argument: {type(texts)}. Value: {texts}")
+                raise TypeError(f"Input 'texts' must be str or List[str], got {type(texts)}")
+
+            print(f"[DEBUG EMBEDDING] Final embedding successful, shape: {embeddings.shape}")
+            return embeddings.to(self.config.device)
+
+        except Exception as e:
+            # This outer catch is for errors not caught by more specific handlers above
+            # or errors in the logic of this function itself.
+            print(f"[DEBUG EMBEDDING] UNHANDLED ERROR in generate_embeddings: {e}")
+            print(f"[DEBUG EMBEDDING] Original texts argument was: {texts}") # Be careful if texts is huge
+            traceback.print_exc()
+            raise # Re-raise the exception
+
+    
+    
     def _process_triples(self, triples: List[Tuple]) -> torch.Tensor:
         """处理三元组为384维嵌入"""
-        if not triples:
-            return torch.empty(0)
-        
-        # 将三元组转换为文本表示
-        triplet_texts = [f"{head} {relation} {tail}" for head, relation, tail in triples]
-        
-        # 生成嵌入
-        return self.generate_embeddings(triplet_texts)
+        print(f"[DEBUG EMBEDDING] _process_triples called with triples: {triples}") # ADD THIS
+        try:
+            if not triples:
+                print("[DEBUG EMBEDDING] Input 'triples' is empty in _process_triples.") # ADD THIS
+                return torch.empty(0) # This was already here
+            
+            triplet_texts = [f"{head} {relation} {tail}" for head, relation, tail in triples]
+            print(f"[DEBUG EMBEDDING] Generated triplet_texts: {triplet_texts}") # ADD THIS
+            return self.generate_embeddings(triplet_texts)
+        except Exception as e:
+            print(f"[DEBUG EMBEDDING] ERROR in _process_triples: {e}") # ADD THIS
+            traceback.print_exc() # ADD THIS
+            raise # Re-raise
 
     def process(self, input_data: Any, triples: Optional[List] = None) -> ProcessingResult:
         current_triples = triples if triples is not None else self._extract_triples_from_input(input_data)
         
-        # 直接生成嵌入向量
-        compressed_vectors = self._process_triples(current_triples)
+        compressed_vectors = self._process_triples(current_triples) 
         
         data_dict = {
             'original_input': input_data,
-            'triples': current_triples,
-            'compressed_vectors': compressed_vectors,
+            'triples': current_triples, 
+            'compressed_vectors': compressed_vectors, 
             'metadata': {'timestamp': time.time(), 'processing_steps': []} 
         }
         
-        # 处理流程
         for step_name, step_func in self.pipeline:
             try:
                 data_dict = step_func(data_dict)
@@ -177,10 +249,31 @@ class IntegratedSystem:
                 traceback.print_exc()
                 break 
         
+        # --- ADD THIS SECTION TO ITERATE AND STORE TRR PLES ---
+        if current_triples: 
+            print(f"[DEBUG PROCESS] Attempting to store {len(current_triples)} extracted triples.")
+            for triple_to_store in current_triples:
+                try:
+                    if isinstance(triple_to_store, tuple) and len(triple_to_store) == 3 and \
+                       all(isinstance(el, str) for el in triple_to_store):
+                        self.store_triple_with_pc(triple_to_store)
+                    else:
+                        print(f"[DEBUG PROCESS] Skipping invalid triple format for storage: {triple_to_store}")
+                except Exception as store_e:
+                    print(f"[DEBUG PROCESS] Error calling store_triple_with_pc for triple {triple_to_store}: {store_e}")
+                    traceback.print_exc()
+        # --- END OF ADDED SECTION ---
+        
+        # Convert to numpy AFTER potential storage, if necessary for ProcessingResult
+        # Or ensure store_triple_with_pc works with tensors if that's what compressed_vectors is
+        final_compressed_vectors = data_dict.get('compressed_vectors', torch.empty(0))
+        if isinstance(final_compressed_vectors, torch.Tensor):
+            final_compressed_vectors = final_compressed_vectors.cpu().numpy()
+
         return ProcessingResult(
             original_input=data_dict.get('original_input'),
             triples=data_dict.get('triples', []),
-            compressed_vectors=data_dict.get('compressed_vectors', torch.empty(0)).cpu().numpy(),
+            compressed_vectors=final_compressed_vectors,
             spatial_embeddings=data_dict.get('spatial_embeddings', torch.tensor([])),
             predictions=data_dict.get('predictions'),
             metadata=data_dict.get('metadata', {})
@@ -315,6 +408,7 @@ class IntegratedSystem:
 
     def store_triple_with_pc(self, triple: Tuple[str, str, str]):
         """使用SeRNN + 预测编码判断是否存储三元组"""
+        print(f"[DEBUG STORE] store_triple_with_pc CALLED with triple: {triple}")
         try:                                                  
             # 1. 编码三元组为句子文本并生成嵌入向量
             triple_text = f"{triple[0]} {triple[1]} {triple[2]}"
@@ -384,7 +478,7 @@ class IntegratedSystem:
         
         for triple_key, kb_vector in self.knowledge_base_vectors.items():
             kb_vector_cpu = kb_vector.cpu().float()
-            similarity = torch.cosine_similarity(query_vector_cpu.unsqueeze(0), kb_vector_cpu.unsqueeze(0)).item()
+            similarity = torch.cosine_similarity(query_vector_cpu, kb_vector_cpu, dim=1).item()
             similarities.append((triple_key, kb_vector_cpu, similarity))
         
         # 返回Top K结果
@@ -394,6 +488,4 @@ class IntegratedSystem:
 # Ensure a newline character at the very end of the file
 import time
 
-
-        
 
