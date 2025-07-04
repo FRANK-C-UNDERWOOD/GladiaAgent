@@ -16,7 +16,7 @@ class PredictiveConfig:
 class LLMConfig:
     """大语言模型配置"""
     def __init__(self):
-        self.api_key = os.getenv("DEEPSEEK_API_KEY", "sk-16caeb0d57514057a5d692c0425372dc")
+        self.api_key = os.getenv("DEEPSEEK_API_KEY", "")
         self.model_name = "deepseek-chat"
         self.max_tokens = 2048    # 最大token数
         self.temperature = 0.7    # 温度参数
