@@ -122,9 +122,15 @@ class SelectiveGatingMechanism(nn.Module):
         # 误差驱动的注意力权重
         error_attention = torch.sigmoid(self.error_attention(error_signal))
         
+        if uncertainty.dim() == 1:
+            uncertainty = uncertainty.unsqueeze(-1)  # 增加维度
+        if uncertainty.size(-1) != input_gate.size(-1):
+            # 扩展uncertainty维度以匹配input_gate
+            uncertainty = uncertainty.expand_as(input_gate)
+        
         # 不确定性调节的门控
-        uncertainty_modulated_input = input_gate * (1 + uncertainty.squeeze(-1))
-        uncertainty_modulated_forget = forget * (1 - uncertainty.squeeze(-1) * 0.1)
+        uncertainty_modulated_input = input_gate * (1 + uncertainty)
+        uncertainty_modulated_forget = forget * (1 - uncertainty * 0.1)
         
         # 更新细胞状态
         cell_state = (uncertainty_modulated_forget * cell_state + 
