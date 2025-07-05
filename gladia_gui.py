@@ -1,4 +1,3 @@
-# gladia_gui.py
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QSystemTrayIcon, QMenu, 
                              QMessageBox, QAction)
 from PyQt5.QtCore import QUrl, QObject, pyqtSlot, pyqtSignal, QPoint, QTimer, Qt
@@ -9,12 +8,19 @@ import os
 import sys
 import threading
 import time
+import asyncio
+import json
+import traceback
 
 class AgentBridge(QObject):
     # 定义信号用于从Python发送消息到JavaScript
     addMessage = pyqtSignal(str, str)  # (角色, 消息)
     updateStatus = pyqtSignal(str)
     setCharacterImage = pyqtSignal(str)
+    
+    # 添加流式信号
+    streamMessageChunk = pyqtSignal(str, str)  # (角色, 消息块)
+    streamMessageFinished = pyqtSignal(str)    # (角色)
     
     def __init__(self, system, gui):
         super().__init__()
@@ -30,22 +36,43 @@ class AgentBridge(QObject):
 
     def process_input_thread(self, text):
         """在新线程中处理用户输入"""
+        # 为当前线程创建新的事件循环
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
         # 显示用户消息
-       
         self.updateStatus.emit("处理中...")
         
         try:
             # 处理用户输入
             start_time = time.time()
-            response = self.system.chat_with_agent(text)
-            processing_time = time.time() - start_time
+            
+            # 获取流式响应生成器
+            response_gen = self.system.chat_with_agent_stream(text)
+            
+            # 在当前线程的事件循环中处理流式响应
+            loop.run_until_complete(self.handle_streaming_response(response_gen))
+            
+        except Exception as e:
+            self.addMessage.emit("system", f"处理错误: {str(e)}")
+            self.updateStatus.emit("错误")
+            traceback.print_exc()
+        finally:
+            # 关闭事件循环
+            loop.close()
+
+    async def handle_streaming_response(self, response_gen):
+        """处理流式响应"""
+        try:
+            # 收集流式响应
+            response = await self.collect_streaming_response(response_gen)
             
             # 添加AI回复
-            self.addMessage.emit("gladia", response.get("reply", "未收到回复"))
+            self.streamMessageFinished.emit("gladia")
             
             # 添加调试信息
             debug_info = [
-                f"处理时间: {processing_time:.2f}秒",
+                f"处理时间: {response.get('processing_time', 0):.2f}秒",
                 f"PDA内存统计: {response.get('pda_memory_stats')}",
                 f"PDA思维链: {response.get('pda_thought_chain')}",
                 f"PDA预测误差: {response.get('pda_prediction_error', 0):.4f}",
@@ -55,11 +82,35 @@ class AgentBridge(QObject):
             for info in debug_info:
                 self.addMessage.emit("system", info)
                 
-            self.updateStatus.emit("就绪")
+            self.updateStatus.emit("就緒")
             
         except Exception as e:
-            self.addMessage.emit("system", f"处理错误: {str(e)}")
+            self.addMessage.emit("system", f"流式处理错误: {str(e)}")
             self.updateStatus.emit("错误")
+            traceback.print_exc()
+
+    async def collect_streaming_response(self, response_gen):
+        """收集流式响应"""
+        full_response = ""
+        start_time = time.time()
+        
+        # 处理每个流式块
+        async for chunk in response_gen:
+            # 发送消息块到前端
+            self.streamMessageChunk.emit("gladia", chunk)
+            full_response += chunk
+            await asyncio.sleep(0.01)  # 稍微让步，避免阻塞事件循环
+        
+        processing_time = time.time() - start_time
+        
+        return {
+            "reply": full_response,
+            "processing_time": processing_time,
+            "pda_memory_stats": self.system.pda_agent.get_memory_stats(),
+            "core_kb_vector_count": len(self.system.knowledge_base_vectors),
+            "pda_thought_chain": self.system.pda_agent.dialog_buffer.chain_text(),
+            "pda_prediction_error": self.system.pda_agent.current_prediction_error
+        }
     
     @pyqtSlot()
     def saveKnowledgeBase(self):
@@ -68,7 +119,7 @@ class AgentBridge(QObject):
             self.updateStatus.emit("保存知识库...")
             self.system.save_all_memory()
             self.addMessage.emit("system", "核心知识库已保存")
-            self.updateStatus.emit("就绪")
+            self.updateStatus.emit("就緒")
         except Exception as e:
             self.addMessage.emit("system", f"保存失败: {str(e)}")
             self.updateStatus.emit("错误")
