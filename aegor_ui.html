@@ -664,6 +664,9 @@
     </div>
     
     <script>
+        // 全局变量用于跟踪当前流式消息
+        let currentStreamingMessage = null;
+        let streamingRole = null;
         // 更新当前时间
         function updateCurrentTime() {
             const now = new Date();
@@ -786,72 +789,107 @@
         // 初始状态
         updateTransform();
         
-        // 流式输出消息
-        function streamMessage(role, message) {
-            // 防重复检查
-            const now = Date.now();
-            const isDuplicate = (now - lastMessageTime < 1000) && 
-                                (lastMessageContent === message) && 
-                                (lastRole === role);
-            
-            if (isDuplicate) {
-                console.log("检测到重复消息，已跳过:", message);
-                return;
-            }
-            
-            // 更新最后消息信息
-            lastMessageTime = now;
-            lastMessageContent = message;
-            lastRole = role;
-            
-            // 创建消息容器
+        // 添加流式输出函数
+        function appendStreamContent(role, content) {
             const dialoguePanel = document.getElementById('dialoguePanel');
-            const nowTime = new Date();
-            const timeString = `${nowTime.getHours().toString().padStart(2, '0')}:${nowTime.getMinutes().toString().padStart(2, '0')}:${nowTime.getSeconds().toString().padStart(2, '0')}`;
             
-            let roleName;
-            switch(role) {
-                case 'user': roleName = 'Doctor'; break;
-                case 'gladia': roleName = 'Gladia'; break;
-                default: roleName = 'System';
+            if (!currentStreamingMessage || streamingRole !== role) {
+                // 创建新消息
+                const now = new Date();
+                const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+                
+                let roleName;
+                switch(role) {
+                    case 'user': roleName = 'Doctor'; break;
+                    case 'gladia': roleName = 'Gladia'; break;
+                    default: roleName = 'System';
+                }
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message message-${role} streaming-message`;
+                messageDiv.innerHTML = `
+                    <div class="message-time">${timeString} | ${roleName}</div>
+                    <p class="message-content"></p>
+                `;
+                
+                dialoguePanel.appendChild(messageDiv);
+                dialoguePanel.scrollTop = dialoguePanel.scrollHeight;
+                
+                currentStreamingMessage = messageDiv.querySelector('.message-content');
+                streamingRole = role;
             }
             
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message message-${role} streaming-message`;
-            messageDiv.innerHTML = `
-                <div class="message-time">${timeString} | ${roleName}</div>
-                <p class="message-content"></p>
-            `;
-            
-            dialoguePanel.appendChild(messageDiv);
+            // 添加内容
+            currentStreamingMessage.textContent += content;
             dialoguePanel.scrollTop = dialoguePanel.scrollHeight;
-            
-            // 获取内容元素
-            const contentElement = messageDiv.querySelector('.message-content');
-            
-            // 清空当前流式消息
-            if (currentStreamingMessage) {
-                clearInterval(currentStreamingMessage.interval);
+        }
+        
+        function markStreamComplete(role) {
+            if (currentStreamingMessage && streamingRole === role) {
+                // 完成流式消息
+                const messageDiv = currentStreamingMessage.parentElement.parentElement;
+                messageDiv.classList.remove('streaming-message');
+                
+                currentStreamingMessage = null;
+                streamingRole = null;
             }
+        }
+        
+        // 修改sendMessage函数以支持流式输出
+        function sendMessage() {
+            const input = document.getElementById('userInput');
+            const message = input.value.trim();
             
-            // 开始流式输出
-            let index = 0;
-            const content = message;
-            currentStreamingMessage = {
-                element: contentElement,
-                interval: setInterval(() => {
-                    if (index < content.length) {
-                        contentElement.textContent += content.charAt(index);
-                        index++;
-                        dialoguePanel.scrollTop = dialoguePanel.scrollHeight;
-                    } else {
-                        // 完成输出
-                        clearInterval(currentStreamingMessage.interval);
-                        messageDiv.classList.remove('streaming-message');
-                        currentStreamingMessage = null;
-                    }
-                }, 30) // 控制输出速度
-            };
+            if (message && agentBridge) {
+                // 添加用户消息（非流式）
+                const now = new Date();
+                const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+                
+                const dialoguePanel = document.getElementById('dialoguePanel');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message message-user';
+                messageDiv.innerHTML = `
+                    <div class="message-time">${timeString} | Doctor</div>
+                    <p>${message}</p>
+                `;
+                
+                dialoguePanel.appendChild(messageDiv);
+                dialoguePanel.scrollTop = dialoguePanel.scrollHeight;
+                
+                // 清空输入框
+                input.value = '';
+                
+                // 发送请求
+                agentBridge.processUserInput(message);
+            }
+        }
+        
+        // 修改原有的addMessageToPanel函数
+        function addMessageToPanel(role, message) {
+            // 对于非流式消息直接添加
+            if (!currentStreamingMessage || streamingRole !== role) {
+                const dialoguePanel = document.getElementById('dialoguePanel');
+                const now = new Date();
+                const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message message-${role}`;
+                
+                let roleName;
+                switch(role) {
+                    case 'user': roleName = 'Doctor'; break;
+                    case 'gladia': roleName = 'Gladia'; break;
+                    default: roleName = 'System';
+                }
+                
+                messageDiv.innerHTML = `
+                    <div class="message-time">${timeString} | ${roleName}</div>
+                    <p>${message}</p>
+                `;
+                
+                dialoguePanel.appendChild(messageDiv);
+                dialoguePanel.scrollTop = dialoguePanel.scrollHeight;
+            }
         }
 
         // 建立 PyQt - JS 通信桥
@@ -859,12 +897,22 @@
         new QWebChannel(qt.webChannelTransport, function(channel) {
             agentBridge = channel.objects.AgentBridge;
             
+            // 保留原有的信号连接
             agentBridge.addMessage.connect(function(role, message) {
                 addMessageToPanel(role, message);
             });
             
             agentBridge.updateStatus.connect(function(status) {
                 document.querySelector('.status-text').textContent = `系统${status} | 深海连接`;
+            });
+            
+            // 添加新的流式信号
+            agentBridge.streamMessageChunk.connect(function(role, chunk) {
+                appendStreamContent(role, chunk);
+            });
+            
+            agentBridge.streamMessageFinished.connect(function(role) {
+                markStreamComplete(role);
             });
         });
     
