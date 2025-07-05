@@ -299,6 +299,7 @@ cd [文件名]
         pip install -r requirements.txt
         
 如果遇到冲突，您可能需要手动编辑 `requirements.txt`，选择合适的版本，或者逐个解决。
+等待系统安装完成后run main.py文件。
 
 ## 6. 项目文件结构 (Project File Structure)
 
