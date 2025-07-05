@@ -52,65 +52,8 @@ GladiaAgent 的架构设计旨在将认知启发的功能模块与强大的深�
 
 ### 3.1 整体概念流程 (Conceptual Flow)
 
-graph TD
-    %% 输入层
-    A[User Input] --> B(Text Embedding)
-    A --> C[Triple Extraction]
+![Uploading image.png…]()
 
-    %% 知识处理层
-    C --> D[Triples]
-    D --> E(Text Embedding)
-    E --> F[Triple Embeddings]
-    F --> G(seRNN)
-    G --> H[Enhanced Embeddings]
-    H --> I(PredictiveCoding)
-    I -->|Loss > Threshold| J[Store in Knowledge Base]
-    I -->|Low Loss| K[Ignore]
-
-    %% 对话管理层
-    B --> L[User Input Embedded]
-    L --> M(PDA)
-    J --> M
-    N[Dialog History] --> M
-    M --> O(Generate Query Embedding)
-    O --> P[Query Knowledge Base]
-    P --> Q[Retrieved Knowledge]
-    Q --> M
-
-    %% 响应生成层
-    M --> R(Construct Prompt)
-    R --> S[DeepSeek LLM]
-    S --> T[Response]
-    T --> U[Display to User]
-    U --> A
-
-    %% 区域标注
-    subgraph Input
-        A
-    end
-    
-    subgraph "Knowledge Processing"
-        C; D; E; F; G; H; I; J; K
-    end
-    
-    subgraph "Dialog Management"
-        M; O; P; Q; R
-    end
-    
-    subgraph "Response Generation"
-        S; T; U
-    end
-    
-    %% 样式增强
-    classDef input fill:#f9f,stroke:#333,stroke-width:2px
-    classDef knowledge fill:#ccffcc,stroke:#333,stroke-width:2px
-    classDef dialog fill:#ffcc99,stroke:#333,stroke-width:2px
-    classDef response fill:#cce6ff,stroke:#333,stroke-width:2px
-    
-    class A input;
-    class C,J knowledge;
-    class M,O,P,Q dialog;
-    class S,T response;
 
 **流程解读:**
 
