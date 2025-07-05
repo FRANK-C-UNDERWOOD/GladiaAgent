@@ -52,58 +52,65 @@ GladiaAgent 的架构设计旨在将认知启发的功能模块与强大的深�
 
 ### 3.1 整体概念流程 (Conceptual Flow)
 
-GladiaAgent 的核心数据流和模块交互可以概括如下：
-
-```mermaid
 graph TD
-    A[User Input (GUI/CLI)] --> B(Text Embedding Module);
-    B --> UserInputEmbedded[User Input Embedded];
+    %% 输入层
+    A[User Input] --> B(Text Embedding)
+    A --> C[Triple Extraction]
 
-    UserInputEmbedded --> PDA[PredictiveDialogAgent PDA];
-    A --> TripleExtractPath{Parallel Path for Knowledge};
-    TripleExtractPath --> D[Triple Extraction (LLM)];
-    D --> F[Triple Text];
-    F --> G(Text Embedding Module);
-    G --> H[Triple Embeddings];
-    H --> I[seRNN Module];
-    I --> J[Enhanced Triple Embeddings];
-    J --> K[PredictiveCodingAgent PC];
-    K -- Prediction Loss > Threshold --> L[Store in Core Knowledge Base];
-    K -- Prediction Loss <= Threshold --> M(Discard/Ignore Triple);
+    %% 知识处理层
+    C --> D[Triples]
+    D --> E(Text Embedding)
+    E --> F[Triple Embeddings]
+    F --> G(seRNN)
+    G --> H[Enhanced Embeddings]
+    H --> I(PredictiveCoding)
+    I -->|Loss > Threshold| J[Store in Knowledge Base]
+    I -->|Low Loss| K[Ignore]
 
-    PDA --> N(Query Embedding Generation);
-    N --> O[Query Core Knowledge Base];
-    L --> O;
+    %% 对话管理层
+    B --> L[User Input Embedded]
+    L --> M(PDA)
+    J --> M
+    N[Dialog History] --> M
+    M --> O(Generate Query Embedding)
+    O --> P[Query Knowledge Base]
+    P --> Q[Retrieved Knowledge]
+    Q --> M
 
-    O -- Retrieved Knowledge --> PDA;
-    P[Dialog History] --> PDA;
+    %% 响应生成层
+    M --> R(Construct Prompt)
+    R --> S[DeepSeek LLM]
+    S --> T[Response]
+    T --> U[Display to User]
+    U --> A
 
-    PDA -- Constructed Prompt --> Q[DeepSeek LLM];
-    Q -- LLM Response Stream --> R(Format & Display Response);
-    R --> A;
-
-    subgraph CoreCognitiveLoop [Core Cognitive Loop / Knowledge Storage]
-        D; F; G; H; I; J; K; L; M;
+    %% 区域标注
+    subgraph Input
+        A
     end
-
-    subgraph DialogManagement [Dialog Management & Generation]
-        PDA; N; O; P; Q; R;
+    
+    subgraph "Knowledge Processing"
+        C; D; E; F; G; H; I; J; K
     end
-
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style Q fill:#lightgrey,stroke:#333,stroke-width:2px
-    style L fill:#ccffcc,stroke:#333,stroke-width:2px
-    style K fill:#lightblue,stroke:#333,stroke-width:2px
-    style I fill:#lightblue,stroke:#333,stroke-width:2px
-```
-
-**图例与说明:**
-
-*   **矩形框 (e.g., `User Input`)**: 表示数据、状态或外部实体。
-*   **圆角矩形框 (e.g., `Text Embedding Module`)**: 表示处理模块或组件。
-*   **菱形框 (e.g., `Input Text`)**: 表示数据分支点或中间数据形态。
-*   **箭头 (`-->`)**: 表示数据流或控制流方向。
-*   **Subgraph (e.g., `Core Cognitive Loop`)**: 表示一组功能上相关的模块。
+    
+    subgraph "Dialog Management"
+        M; O; P; Q; R
+    end
+    
+    subgraph "Response Generation"
+        S; T; U
+    end
+    
+    %% 样式增强
+    classDef input fill:#f9f,stroke:#333,stroke-width:2px
+    classDef knowledge fill:#ccffcc,stroke:#333,stroke-width:2px
+    classDef dialog fill:#ffcc99,stroke:#333,stroke-width:2px
+    classDef response fill:#cce6ff,stroke:#333,stroke-width:2px
+    
+    class A input;
+    class C,J knowledge;
+    class M,O,P,Q dialog;
+    class S,T response;
 
 **流程解读:**
 
