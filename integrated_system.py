@@ -1,18 +1,19 @@
+# integrated_system.py
 import torch
 import numpy as np
-from typing import List, Dict, Any, Optional,Tuple, Union
+from typing import List, Dict, Any, Optional, Tuple, Union, AsyncGenerator
 from dataclasses import dataclass
-from config import Config # Assuming Config is appropriately modified
-from adapters import SeRNNAdapter,PredictiveAdapter
-# from adapters import PDAAdapter # Not directly used in this file after changes
+from config import Config
+from adapters import SeRNNAdapter, PredictiveAdapter
 import asyncio
 from sentence_transformers import SentenceTransformer
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 from PDA import PredictiveDialogAgent
-from PredictiveCoding import PredictiveCodingAgent # Ensure this is imported
 import os
 import json
 import traceback
+import time
+import threading
 
 CORE_MEMORY_DIR = "core_sernn_memory"
 
@@ -46,10 +47,16 @@ class IntegratedSystem:
         self._build_pipeline()
         self._load_core_knowledge()
 
-        self.deepseek_client = AsyncOpenAI(
+        # 初始化同步和异步客户端
+        self.async_deepseek_client = AsyncOpenAI(
             base_url="https://api.deepseek.com/v1",
             api_key=self.config.llm_config.api_key
         )
+        self.sync_deepseek_client = OpenAI(
+            base_url="https://api.deepseek.com/v1",
+            api_key=self.config.llm_config.api_key
+        )
+        
         self.pda_agent = PredictiveDialogAgent(
             deepseek_api_key=self.config.llm_config.api_key,
             integrated_system_ref=self
@@ -210,8 +217,6 @@ class IntegratedSystem:
             traceback.print_exc()
             raise # Re-raise the exception
 
-    
-    
     def _process_triples(self, triples: List[Tuple]) -> torch.Tensor:
         """处理三元组为384维嵌入"""
         print(f"[DEBUG EMBEDDING] _process_triples called with triples: {triples}") # ADD THIS
@@ -229,7 +234,15 @@ class IntegratedSystem:
             raise # Re-raise
 
     def process(self, input_data: Any, triples: Optional[List] = None) -> ProcessingResult:
-        current_triples = triples if triples is not None else self._extract_triples_from_input(input_data)
+        # 使用同步方式提取三元组
+        if triples is None:
+            if isinstance(input_data, str):
+                # 同步提取三元组
+                current_triples = self._extract_triples_from_input_sync(input_data)
+            else:
+                current_triples = []
+        else:
+            current_triples = triples
         
         compressed_vectors = self._process_triples(current_triples) 
         
@@ -249,7 +262,7 @@ class IntegratedSystem:
                 traceback.print_exc()
                 break 
         
-        # --- ADD THIS SECTION TO ITERATE AND STORE TRR PLES ---
+       
         if current_triples: 
             print(f"[DEBUG PROCESS] Attempting to store {len(current_triples)} extracted triples.")
             for triple_to_store in current_triples:
@@ -262,10 +275,7 @@ class IntegratedSystem:
                 except Exception as store_e:
                     print(f"[DEBUG PROCESS] Error calling store_triple_with_pc for triple {triple_to_store}: {store_e}")
                     traceback.print_exc()
-        # --- END OF ADDED SECTION ---
-        
-        # Convert to numpy AFTER potential storage, if necessary for ProcessingResult
-        # Or ensure store_triple_with_pc works with tensors if that's what compressed_vectors is
+       
         final_compressed_vectors = data_dict.get('compressed_vectors', torch.empty(0))
         if isinstance(final_compressed_vectors, torch.Tensor):
             final_compressed_vectors = final_compressed_vectors.cpu().numpy()
@@ -279,8 +289,9 @@ class IntegratedSystem:
             metadata=data_dict.get('metadata', {})
         )
 
-    async def _extract_triples_via_llm(self, text_input: str) -> List[Tuple[str, str, str]]:
-        """使用LLM提取三元组"""
+    def _extract_triples_from_input_sync(self, input_data: str) -> List[Tuple[str, str, str]]:
+        """同步方式提取三元组"""
+        # 使用同步客户端提取三元组
         prompt = f"""
         请从以下中文文本中抽取所有可识别的知识三元组（主语-谓语-宾语）。
         每个三元组请严格按照JSON对象格式表示，包含 "subject"（主体）、"relation"（关系）和 "object"（客体）三个键。
@@ -291,10 +302,10 @@ class IntegratedSystem:
             {{"subject": "小明", "relation": "在公园里踢", "object": "足球"}}
         ]
         现在请从以下文本中提取三元组：
-            {text_input}
+            {input_data}
         """
         try:
-            response = await self.deepseek_client.chat.completions.create(
+            response = self.sync_deepseek_client.chat.completions.create(
                 model=self.config.llm_config.model_name,
                 messages=[
                     {"role": "system", "content": "你是一个精确的知识抽取引擎。请严格按照用户要求的JSON格式输出（JSON对象数组，每个对象包含subject, relation, object键）。如果找不到三元组，返回空数组[]。"},
@@ -326,12 +337,6 @@ class IntegratedSystem:
             traceback.print_exc()
             return []
 
-    def _extract_triples_from_input(self, input_data: Any) -> List[Tuple[str, str, str]]:
-        """从输入中提取三元组"""
-        if not isinstance(input_data, str):
-            return [] if not isinstance(input_data, list) else input_data 
-        return asyncio.run(self._extract_triples_via_llm(input_data))
-
     def batch_process(self, input_batch: List[Any]) -> List[ProcessingResult]:
         """批量处理输入"""
         results = []
@@ -355,18 +360,43 @@ class IntegratedSystem:
             'embedding_model': 'paraphrase-MiniLM-L6-v2'
         }
 
-    def chat_with_agent(self, user_input: str) -> dict:
-        """与对话代理交互"""
-        _ = self.process(user_input)
-        reply_content = asyncio.run(self.pda_agent.dialog_round(user_input))
+    async def chat_with_agent_stream(self, user_input: str) -> AsyncGenerator[str, None]:
+        """流式与对话代理交互"""
+        # 使用同步方式处理用户输入（避免嵌套事件循环）
+        self.process(user_input)
+        
+        # 获取流式响应生成器
+        async for chunk in self.pda_agent.dialog_round(user_input):
+            yield chunk
 
-        return {
-            "reply": reply_content, 
-            "pda_memory_stats": self.pda_agent.get_memory_stats(),
-            "core_kb_vector_count": len(self.knowledge_base_vectors),
-            "pda_thought_chain": self.pda_agent.dialog_buffer.chain_text(),
-            "pda_prediction_error": self.pda_agent.current_prediction_error
-        }
+    async def get_embedding_for_query(self, query_text: str) -> torch.Tensor:
+        """获取查询文本的嵌入"""
+        return self.generate_embeddings(query_text)
+
+    def query_core_knowledge_base(self, query_text: Optional[str] = None, 
+                                query_vector: Optional[torch.Tensor] = None, 
+                                top_k: int = 5) -> List[Tuple[str, torch.Tensor, float]]:
+        """查询核心知识库"""
+        # 生成查询向量
+        if query_vector is None and query_text:
+            # 使用同步方式获取嵌入
+            query_vector = self.generate_embeddings(query_text)
+        
+        if query_vector is None or not self.knowledge_base_vectors:
+            return []
+
+        # 相似度计算
+        query_vector_cpu = query_vector.cpu().float()
+        similarities = []
+        
+        for triple_key, kb_vector in self.knowledge_base_vectors.items():
+            kb_vector_cpu = kb_vector.cpu().float()
+            similarity = torch.cosine_similarity(query_vector_cpu, kb_vector_cpu, dim=1).item()
+            similarities.append((triple_key, kb_vector_cpu, similarity))
+        
+        # 返回Top K结果
+        similarities.sort(key=lambda x: x[2], reverse=True)
+        return similarities[:top_k]
 
     def _save_core_knowledge(self):
         """保存核心知识库"""
@@ -453,39 +483,5 @@ class IntegratedSystem:
                     print(f"[FALLBACK STORE] 未启用PC模块，直接存储三元组: {triple_key}")
 
         except Exception as e:
-            print(f"❌ Error storing triple via PC+SeRNN: {e}")
+            print(f"❌❌ Error storing triple via PC+SeRNN: {e}")
             traceback.print_exc()
-
-
-    async def get_embedding_for_query(self, query_text: str) -> torch.Tensor:
-        """获取查询文本的嵌入"""
-        return self.generate_embeddings(query_text)
-
-    def query_core_knowledge_base(self, query_text: Optional[str] = None, 
-                                query_vector: Optional[torch.Tensor] = None, 
-                                top_k: int = 5) -> List[Tuple[str, torch.Tensor, float]]:
-        """查询核心知识库"""
-        # 生成查询向量
-        if query_vector is None and query_text:
-            query_vector = asyncio.run(self.get_embedding_for_query(query_text))
-        
-        if query_vector is None or not self.knowledge_base_vectors:
-            return []
-
-        # 相似度计算
-        query_vector_cpu = query_vector.cpu().float()
-        similarities = []
-        
-        for triple_key, kb_vector in self.knowledge_base_vectors.items():
-            kb_vector_cpu = kb_vector.cpu().float()
-            similarity = torch.cosine_similarity(query_vector_cpu, kb_vector_cpu, dim=1).item()
-            similarities.append((triple_key, kb_vector_cpu, similarity))
-        
-        # 返回Top K结果
-        similarities.sort(key=lambda x: x[2], reverse=True)
-        return similarities[:top_k]
-
-# Ensure a newline character at the very end of the file
-import time
-
-
