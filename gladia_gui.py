@@ -31,7 +31,7 @@ class AgentBridge(QObject):
     def process_input_thread(self, text):
         """在新线程中处理用户输入"""
         # 显示用户消息
-        self.addMessage.emit("user", text)
+       
         self.updateStatus.emit("处理中...")
         
         try:
