@@ -1,4 +1,4 @@
-# GladiaAgent: Your Predictive Dialog Companion
+# GladiaAgent
 
 ## 1. 简介 (Introduction)
 
