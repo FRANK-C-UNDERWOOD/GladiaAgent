@@ -289,6 +289,18 @@
             margin-bottom: 3px;
         }
         
+        /* 流式输出打字效果 */
+        .streaming-message .message-content::after {
+            content: "▋";
+            animation: cursorBlink 1s infinite;
+            color: #90d0f0;
+        }
+        
+        @keyframes cursorBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
         /* 阿戈尔徽章 */
         .aegir-badge {
             position: absolute;
@@ -516,6 +528,28 @@
             border: 1px solid rgba(180, 150, 100, 0.5);
             z-index: 15;
         }
+
+        /* 连接状态 */
+        .connection-status {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            display: flex;
+            align-items: center;
+            z-index: 10;
+            color: #90d0f0;
+            font-size: 14px;
+        }
+        
+        .connection-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ff00;
+            margin-right: 8px;
+            box-shadow: 0 0 5px #00ff00;
+            animation: pulse 1.5s infinite;
+        }
     </style>
 </head>
 <body>
@@ -552,6 +586,12 @@
             <div class="status-text">系统运行中 | 深海连接稳定</div>
         </div>
         
+        <!-- 连接状态 -->
+        <div class="connection-status">
+            <div class="connection-dot"></div>
+            <div id="connection-text">流式连接已建立</div>
+        </div>
+
         <!-- 标题 -->
         <div class="header">
             <h1 class="title">阿戈尔通讯终端</h1>
@@ -602,6 +642,10 @@
                     <div class="right-button" id="knowledgeBaseBtn">
                         <div class="right-button-icon">🗂️</div>
                         <div class="right-button-text">知识库</div>
+                    </div>
+                    <div class="right-button" id="streamToggleBtn">
+                        <div class="right-button-icon">🌊</div>
+                        <div class="right-button-text">流式开关</div>    
                     </div>
                 </div>
             </div>
@@ -724,7 +768,7 @@
             updateTransform();
         });
         
-        // 【重要】修正后的 mouseup 事件监听器
+        //  mouseup 事件监听器
         document.addEventListener('mouseup', () => {
             // 只在拖拽结束后才执行，避免全局干扰
             if (isDragging) {
@@ -742,6 +786,74 @@
         // 初始状态
         updateTransform();
         
+        // 流式输出消息
+        function streamMessage(role, message) {
+            // 防重复检查
+            const now = Date.now();
+            const isDuplicate = (now - lastMessageTime < 1000) && 
+                                (lastMessageContent === message) && 
+                                (lastRole === role);
+            
+            if (isDuplicate) {
+                console.log("检测到重复消息，已跳过:", message);
+                return;
+            }
+            
+            // 更新最后消息信息
+            lastMessageTime = now;
+            lastMessageContent = message;
+            lastRole = role;
+            
+            // 创建消息容器
+            const dialoguePanel = document.getElementById('dialoguePanel');
+            const nowTime = new Date();
+            const timeString = `${nowTime.getHours().toString().padStart(2, '0')}:${nowTime.getMinutes().toString().padStart(2, '0')}:${nowTime.getSeconds().toString().padStart(2, '0')}`;
+            
+            let roleName;
+            switch(role) {
+                case 'user': roleName = 'Doctor'; break;
+                case 'gladia': roleName = 'Gladia'; break;
+                default: roleName = 'System';
+            }
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-${role} streaming-message`;
+            messageDiv.innerHTML = `
+                <div class="message-time">${timeString} | ${roleName}</div>
+                <p class="message-content"></p>
+            `;
+            
+            dialoguePanel.appendChild(messageDiv);
+            dialoguePanel.scrollTop = dialoguePanel.scrollHeight;
+            
+            // 获取内容元素
+            const contentElement = messageDiv.querySelector('.message-content');
+            
+            // 清空当前流式消息
+            if (currentStreamingMessage) {
+                clearInterval(currentStreamingMessage.interval);
+            }
+            
+            // 开始流式输出
+            let index = 0;
+            const content = message;
+            currentStreamingMessage = {
+                element: contentElement,
+                interval: setInterval(() => {
+                    if (index < content.length) {
+                        contentElement.textContent += content.charAt(index);
+                        index++;
+                        dialoguePanel.scrollTop = dialoguePanel.scrollHeight;
+                    } else {
+                        // 完成输出
+                        clearInterval(currentStreamingMessage.interval);
+                        messageDiv.classList.remove('streaming-message');
+                        currentStreamingMessage = null;
+                    }
+                }, 30) // 控制输出速度
+            };
+        }
+
         // 建立 PyQt - JS 通信桥
         let agentBridge;
         new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -809,7 +921,18 @@
         document.getElementById('knowledgeBaseBtn').addEventListener('click', function() {
             addMessageToPanel('system', '正在访问核心知识库...');
         });
-    
+        
+        document.getElementById('streamToggleBtn').addEventListener('click', function() {
+            const status = document.getElementById('connection-text');
+            if (status.textContent === '流式连接已建立') {
+                status.textContent = '流式连接已关闭';
+                status.style.color = '#ff5555';
+            } else {
+                status.textContent = '流式连接已建立';
+                status.style.color = '#90d0f0';
+            }
+        });
+        
         // 初始系统消息
         setTimeout(() => {
             addMessageToPanel('system', 'Gladia AI 系统已就绪');
