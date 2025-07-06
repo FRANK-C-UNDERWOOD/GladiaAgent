@@ -70,15 +70,6 @@ class AgentBridge(QObject):
             # 添加AI回复
             self.streamMessageFinished.emit("gladia")
             
-            # 添加调试信息
-            debug_info = [
-                f"处理时间: {response.get('processing_time', 0):.2f}秒",
-                f"PDA内存统计: {response.get('pda_memory_stats')}",
-                f"PDA思维链: {response.get('pda_thought_chain')}",
-                f"PDA预测误差: {response.get('pda_prediction_error', 0):.4f}",
-                f"知识库向量数: {response.get('core_kb_vector_count', 0)}"
-            ]
-            
             for info in debug_info:
                 self.addMessage.emit("system", info)
                 
