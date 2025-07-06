@@ -69,7 +69,15 @@ class AgentBridge(QObject):
             
             # 添加AI回复
             self.streamMessageFinished.emit("gladia")
-          
+            
+            # 添加调试信息
+            debug_info = [
+                f"处理时间: {response.get('processing_time', 0):.2f}秒",
+                f"PDA内存统计: {response.get('pda_memory_stats')}",
+                f"PDA思维链: {response.get('pda_thought_chain')}",
+                f"PDA预测误差: {response.get('pda_prediction_error', 0):.4f}",
+                f"知识库向量数: {response.get('core_kb_vector_count', 0)}"
+            ]
             
             for info in debug_info:
                 self.addMessage.emit("system", info)
@@ -154,7 +162,9 @@ def run_gui(config, system):
     # 创建主窗口
     window = QMainWindow()
     window.setWindowTitle("GladiaAgent - 阿戈尔深海界面")
-    window.setFixedSize(1000, 750)  # 匹配原始UI尺寸
+    # 移除固定大小设置，允许调整窗口大小
+    # window.setFixedSize(1000, 750)  # 原始固定大小设置
+    window.resize(1000, 750)  # 设置初始大小但允许调整
     
     # 创建Web视图
     view = QWebEngineView()
@@ -182,10 +192,11 @@ def run_gui(config, system):
     # 创建托盘菜单
     tray_menu = QMenu()
     
-    # 添加菜单项
+    # 添加菜单项 - 新增全屏切换选项
     actions = [
         ("显示主窗口", window.show),
         ("隐藏主窗口", window.hide),
+        ("切换全屏", lambda: window.showFullScreen() if not window.isFullScreen() else window.showNormal()),
         ("保存知识库", bridge.saveKnowledgeBase),
         ("退出系统", bridge.exitApplication)
     ]
@@ -196,6 +207,14 @@ def run_gui(config, system):
     
     tray_icon.setContextMenu(tray_menu)
     tray_icon.show()
+    
+    # 添加全屏切换快捷键 (F11)
+    fullscreen_action = QAction(window)
+    fullscreen_action.setShortcut("F11")
+    fullscreen_action.triggered.connect(
+        lambda: window.showFullScreen() if not window.isFullScreen() else window.showNormal()
+    )
+    window.addAction(fullscreen_action)
     
     # 窗口关闭事件处理
     window.closeEvent = lambda event: bridge.exitApplication()
@@ -211,6 +230,9 @@ if __name__ == "__main__":
     # 创建测试配置和系统
     config = Config()
     system = IntegratedSystem(config)
+    
+    # 运行GUI
+    run_gui(config, system)ig)
     
     # 运行GUI
     run_gui(config, system)
