@@ -261,7 +261,7 @@ class IntegratedSystem:
                 traceback.print_exc()
                 break 
         
-       
+        # --- ADD THIS SECTION TO ITERATE AND STORE TRR PLES ---
         if current_triples: 
             print(f"[DEBUG PROCESS] Attempting to store {len(current_triples)} extracted triples.")
             for triple_to_store in current_triples:
@@ -274,7 +274,10 @@ class IntegratedSystem:
                 except Exception as store_e:
                     print(f"[DEBUG PROCESS] Error calling store_triple_with_pc for triple {triple_to_store}: {store_e}")
                     traceback.print_exc()
-       
+        # --- END OF ADDED SECTION ---
+        
+        # Convert to numpy AFTER potential storage, if necessary for ProcessingResult
+        # Or ensure store_triple_with_pc works with tensors if that's what compressed_vectors is
         final_compressed_vectors = data_dict.get('compressed_vectors', torch.empty(0))
         if isinstance(final_compressed_vectors, torch.Tensor):
             final_compressed_vectors = final_compressed_vectors.cpu().numpy()
@@ -289,7 +292,7 @@ class IntegratedSystem:
         )
 
     def _extract_triples_from_input_sync(self, input_data: str) -> List[Tuple[str, str, str]]:
-        """同步方式提取三元组"""
+        """同步方式提取三元组（避免嵌套事件循环）"""
         # 使用同步客户端提取三元组
         prompt = f"""
         请从以下中文文本中抽取所有可识别的知识三元组（主语-谓语-宾语）。
