@@ -18,6 +18,7 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
+            width: 100vw;
             background: #000;
             overflow: hidden;
             background-image: 
@@ -28,8 +29,10 @@
         /* 主容器 - 阿戈尔鎏金风格 */
         .aegir-container {
             position: relative;
-            width: 1000px;
-            height: 700px;
+            width: 100vw;           /* 改为100%视窗宽度 */
+            height: 100vh;          /* 改为100%视窗高度 */
+            max-width: none;        /* 移除最大宽度限制 */
+            max-height: none;       /* 移除最大高度限制 */
             background: linear-gradient(135deg, rgba(15, 30, 50, 0.92), rgba(8, 20, 35, 0.88));
             border-radius: 12px;
             overflow: hidden;
@@ -306,28 +309,36 @@
             position: absolute;
             top: 30px;
             right: 220px;
-            width: 40px;
-            height: 40px;
-            background: rgba(10, 25, 40, 0.7);
-            border: 1px solid rgba(180, 150, 100, 0.5);
-            border-radius: 50%;
+            width: 50px;           /* 可以根据需要调整大小 */
+            height: 50px;          /* 可以根据需要调整大小 */
             display: flex;
             justify-content: center;
             align-items: center;
             z-index: 11;
-            box-shadow: 0 0 10px rgba(180, 150, 100, 0.3);
+            filter: drop-shadow(0 0 8px rgba(180, 150, 100, 0.4)); /* 添加发光效果 */
+        }
+
+        .badge-image {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;   /* 保持图片比例 */
+            filter: brightness(0.9) contrast(1.1); /* 调整图片亮度和对比度 */
         }
         
-        .badge-icon {
-            font-size: 24px;
-            color: rgba(180, 150, 100, 0.8);
+        .aegir-badge:hover {
+            transform: scale(1.1);
+            transition: transform 0.3s ease;
+        }
+
+        .aegir-badge:hover .badge-image {
+            filter: brightness(1.1) contrast(1.2) drop-shadow(0 0 5px rgba(255, 255, 255, 0.3));
         }
         
         /* 内容区域 */
         .content {
             position: relative;
             display: flex;
-            height: calc(100% - 180px);
+            height: calc(100vh - 200px);  /* 改为基于视窗高度计算 */
             padding: 0 20px 15px;
             gap: 20px;
             z-index: 5;
@@ -550,6 +561,58 @@
             box-shadow: 0 0 5px #00ff00;
             animation: pulse 1.5s infinite;
         }
+        /* 添加响应式支持 */
+        html, body, #app-container {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .message-area {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .input-area {
+            flex-shrink: 0;
+            padding: 10px;
+        }
+
+        /* 响应式媒体查询 */
+        @media (max-width: 768px) {
+            .content {
+                flex-direction: column;
+                height: calc(100vh - 160px);
+            }
+    
+            .left-panel {
+                flex: 2;
+            }
+    
+            .right-panel {
+                flex: 1;
+                min-height: 200px;
+            }
+    
+            .input-container {
+                left: 10px;
+                right: 10px;
+            }
+        }
+
+        @media (min-width: 1400px) {
+            .content {
+                height: calc(100vh - 220px);
+            }
+        }
     </style>
 </head>
 <body>
@@ -577,7 +640,7 @@
         
         <!-- 阿戈尔徽章 -->
         <div class="aegir-badge">
-            <div class="badge-icon">⚜️</div>
+            <img src="E:\GLADIA\ui\Logo_阿戈尔.png" alt="阿戈尔徽章" class="badge-image">
         </div>
         
         <!-- 状态指示灯 -->
