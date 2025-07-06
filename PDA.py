@@ -11,9 +11,9 @@
 import os
 import torch
 from sentence_transformers import SentenceTransformer
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI # Ensure this is the correct import for your version
 from collections import deque
-from typing import List, Tuple, Dict, Union, Any
+from typing import List, Tuple, Dict, Union, Any, AsyncGenerator
 import asyncio
 import json
 import hashlib
@@ -101,7 +101,7 @@ class PredictiveDialogAgent:
             print(f"[ERROR] Triplet extraction failed: {str(e)}")
         return None
 
-    async def generate_response(self, prompt: str) -> str:
+    async def generate_response(self, prompt: str) -> AsyncGenerator[str, None]:
         """生成对话响应的核心逻辑"""
         print(f"DEBUG_RECALL: PDA.generate_response called with prompt: '{prompt}'")
         # 1. 上下文构建
@@ -196,27 +196,32 @@ class PredictiveDialogAgent:
                 stream=True
             )
             
-            full_response = ""
+            # full_response = "" # No longer accumulating here
             async for chunk in response:
                 if chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
-                    print(content, end="", flush=True)
-                    full_response += content
+                    # print(content, end="", flush=True) # Optional: keep for server-side logging
+                    yield content # Yield the content chunk
             
-            print(f"DEBUG_RECALL: LLM full_response: '{full_response}'")
-            return full_response
+            # print(f"DEBUG_RECALL: LLM stream finished.") # Optional
         
         except Exception as e:
             print(f"\n[API ERROR] {str(e)}")
             traceback.print_exc()
-            return "请求处理遇到技术问题，请稍后再试"
+            yield "请求处理遇到技术问题，请稍后再试" # Yield error message as a chunk
 
-    async def dialog_round(self, user_input: str) -> str:
-        """处理单轮对话的全流程"""
+    async def dialog_round(self, user_input: str) -> AsyncGenerator[str, None]:
+        """处理单轮对话的全流程 (now an async generator)"""
         self.dialog_buffer.add_thought_step("开始解析用户问题语义框架")
-        response = await self.generate_response(user_input)
-        self.dialog_buffer.add_dialog(user_input, response)
-        return response
+        
+        full_streamed_response = ""
+        async for chunk in self.generate_response(user_input):
+            full_streamed_response += chunk
+            yield chunk
+            
+        # Add the complete response to dialog buffer after streaming is done
+        self.dialog_buffer.add_dialog(user_input, full_streamed_response)
+        # No return value needed for async generator in this context of yielding
     
     def get_memory_stats(self) -> Dict[str, Any]:
         """获取记忆系统统计信息"""
@@ -230,7 +235,19 @@ class PredictiveDialogAgent:
             "last_pda_prediction_error": self.current_prediction_error,
             "info": "IntegratedSystem reference not available or KB not found."
         }
-
+    # 在PredictiveDialogAgent类中保持原有流式生成器不变
+    
+    async def dialog_round(self, user_input: str) -> AsyncGenerator[str, None]:
+        """处理单轮对话的全流程 (现在是一个异步生成器)"""
+        self.dialog_buffer.add_thought_step("开始解析用户问题语义框架")
+        
+        full_streamed_response = ""
+        async for chunk in self.generate_response(user_input):
+            full_streamed_response += chunk
+            yield chunk
+            
+        # 将完整响应添加到对话缓冲区
+        self.dialog_buffer.add_dialog(user_input, full_streamed_response)
 # 测试主函数
 async def main():
     print("PDA模块自检完成。请通过主系统接口调用对话功能。")
